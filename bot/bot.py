@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -13,14 +13,33 @@ load_dotenv(dotenv_path="req.env")
 api_key = os.getenv("BINANCE_API_KEY")
 api_secret = os.getenv("BINANCE_API_SECRET")
 
+# Indicator values per coin
+indicators = pd.DataFrame(columns=["Symbol", "RSI_overbought", "RSI_oversold", "RSI_interval", "SMA_short", "SMA_long", "EMA_short", "EMA_long", "MACD_fast", "MACD_slow", "MACD_signal", "interval", "start_time", "end_time"])
+indicators.loc[0] = ["BTCUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+indicators.loc[1] = ["ETHUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+indicators.loc[2] = ["BNBUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+indicators.loc[3] = ["ADAUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+indicators.loc[4] = ["XRPUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+indicators.loc[5] = ["DOGEUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
+
+# Stock Market and indicator DataFrames for each coin
+BTC_df = pd.DataFrame()
+ETH_df = pd.DataFrame()
+BNB_df = pd.DataFrame()
+ADA_df = pd.DataFrame()
+XRP_df = pd.DataFrame()
+DOGE_df = pd.DataFrame()
+
 client = Client(api_key=api_key, api_secret=api_secret)
 
-# fetch historical data with kline
-now = datetime.UTC
-symbol = "ETHUSDT"
+# test variables
+now = datetime.now()
+ETH_symbol = "ETHUSDT"
 interval = Client.KLINE_INTERVAL_1DAY
 start_time = "2022-01-01"
 end_time = "2022-12-31"
+
+
 
 
 def fetch_historical_data(symbol, interval, start_time, end_time):
@@ -145,57 +164,63 @@ def calculate_indicators(df, rsi_period, sma_period, ema_period, macd_fast, macd
     df = calculate_macd(df, fastperiod=macd_fast, slowperiod=macd_slow, signalperiod=macd_signal)
     return df
 
+def df_per_coin(indicators): 
+    global BTC_df, ETH_df, BNB_df, ADA_df, XRP_df, DOGE_df
+    for i in range(len(indicators)):
+        bars = fetch_historical_data(indicators["Symbol"][i], indicators["interval"][i], indicators["start_time"][i], indicators["end_time"][i])
+        df = bars_to_data_frame(bars)
+        df = rsi_signal(df, rsi_period=indicators["RSI_interval"][i], overbought=indicators["RSI_overbought"][i], oversold=indicators["RSI_oversold"][i])
+        df = sma_signal(df, timeperiod=indicators["SMA_short"][i])
+        df = sma_signal(df, timeperiod=indicators["SMA_long"][i])
+        df = ema_signal(df, timeperiod=indicators["EMA_short"][i])
+        df = ema_signal(df, timeperiod=indicators["EMA_long"][i])
+        df = macd_signal(df, fastperiod=indicators["MACD_fast"][i], slowperiod=indicators["MACD_slow"][i], signalperiod=indicators["MACD_signal"][i])
+
+        
+        if indicators["Symbol"][i] == "BTCUSDT":
+            BTC_df = df
+        elif indicators["Symbol"][i] == "ETHUSDT":
+            ETH_df = df
+        elif indicators["Symbol"][i] == "BNBUSDT":
+            BNB_df = df
+        elif indicators["Symbol"][i] == "ADAUSDT":
+            ADA_df = df
+        elif indicators["Symbol"][i] == "XRPUSDT":
+            XRP_df = df
+        elif indicators["Symbol"][i] == "DOGEUSDT":
+            DOGE_df = df
+    
+
+    # True if there is a sell signal
+def loss_or_profit(entry_price, stop_loss_percentage, take_profit_percentage):
+    
+    stop_loss = entry_price - (entry_price * stop_loss_percentage / 100)
+    take_profit = entry_price + (entry_price * take_profit_percentage / 100)
+    return stop_loss >= entry_price or take_profit <= entry_price
+
+
 
 def main():
     # Geçmiş verileri çek
     print("Geçmiş veriler çekiliyor...")
-    bars = fetch_historical_data(symbol, interval, start_time, end_time)
+    print(indicators["Symbol"][0], indicators["interval"][0], indicators["start_time"][0], indicators["end_time"][0])
+    df_per_coin(indicators)
+    print(BTC_df.tail(30))
+    print(ETH_df.tail(30))
+    print(BNB_df.tail(30))
+    print(ADA_df.tail(30))
+    print(XRP_df.tail(30))
+    print(DOGE_df.tail(30))
 
-    # Veriyi DataFrame'e dönüştür
-    print("Veriler DataFrame formatına dönüştürülüyor...")
-    df = bars_to_data_frame(bars)
+    
 
-    # df yi yazdır
-    print(df)
-
-    # yeni bir dataFrame
-    close_df = df[['Close']].copy()
-
-    print(close_df)
-
-    # İndikatör parametreleri
-    rsi_period = 14
-    sma_period = 20
-    ema_period = 20
-    macd_fast = 12
-    macd_slow = 26
-    macd_signal_value = 9
-
-    # # İndikatörleri hesapla
-    # print("İndikatörler hesaplanıyor...")
-    # cl = calculate_indicators(
-    #     close_df,
-    #     rsi_period=rsi_period,
-    #     sma_period=sma_period,
-    #     ema_period=ema_period,
-    #     macd_fast=macd_fast,
-    #     macd_slow=macd_slow,
-    #     macd_signal=macd_signal_value
-    # )
-
-    # Sinyalleri hesapla
-    close_df = rsi_signal(close_df, rsi_period=rsi_period, overbought=70, oversold=30)
-    close_df = sma_signal(close_df, timeperiod=sma_period)
-    close_df = ema_signal(close_df, timeperiod=ema_period)
-    close_df = macd_signal(close_df, fastperiod=macd_fast, slowperiod=macd_slow, signalperiod=macd_signal_value)
-
-    # # Sonuçları görüntüle
-    print(close_df.tail(25))
+    
 
 
 # Bu bölümde çalıştırılmasını istediğiniz kodları ekleyebilirsiniz
 if __name__ == "__main__":
     # Burada çalışmasını istediğiniz tüm kodları çağırabilirsiniz
     print("Program başlatılıyor...")
+    loop.run_until_complete(main())  
     main()  # `main` fonksiyonunu çağırıyoruz.
     print("Tüm işlemler başarıyla tamamlandı!")
