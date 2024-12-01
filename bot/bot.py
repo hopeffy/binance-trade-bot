@@ -22,6 +22,18 @@ indicators.loc[3] = ["ADAUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "202
 indicators.loc[4] = ["XRPUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
 indicators.loc[5] = ["DOGEUSDT", 70, 30, 14, 10, 30, 9, 21, 12, 26, 9, "1d", "2022-01-01", f'{datetime.now()}']
 
+# Trading states
+positions = pd.DataFrame(columns=["Symbol", "Entry Price", "Position", "Position Size"])
+positions.loc[0] = ["BTCUSDT", 0, False, 0]
+positions.loc[1] = ["ETHUSDT", 0, False, 0]
+positions.loc[2] = ["BNBUSDT", 0, False, 0]
+positions.loc[3] = ["ADAUSDT", 0, False, 0]
+positions.loc[4] = ["XRPUSDT", 0, False, 0]
+positions.loc[5] = ["DOGEUSDT", 0, False, 0]
+
+
+
+
 # Stock Market and indicator DataFrames for each coin
 BTC_df = pd.DataFrame()
 ETH_df = pd.DataFrame()
@@ -190,13 +202,53 @@ def df_per_coin(indicators):
         elif indicators["Symbol"][i] == "DOGEUSDT":
             DOGE_df = df
     
+# Calculating tp and sl prices
+def take_profit(symbol, positions=pd.DataFrame):
+    df= f'{symbol}_df'
+    entry_price = positions.loc[positions["Symbol"] == symbol, "Entry Price"]
+    tp_price = entry_price * 1.02
+    return tp_price
 
-    # True if there is a sell signal
-def loss_or_profit(entry_price, stop_loss_percentage, take_profit_percentage):
+
+def stop_loss(symbol, position):
+    df= f'{symbol}_df'
+    entry_price = positions.loc[positions["Symbol"] == symbol, "Entry Price"]
+    sl_price = entry_price * 0.98
+    return sl_price
+
+# Trading actions. Returns true if there is need to SELL
+def tp_sl_actions(symbol, positions):
+    tp_price = take_profit(symbol, positions)
+    sl_price = stop_loss(symbol, positions)
+    df= f'{symbol}_df'
+    if df.loci[-1]["Close"] >= tp_price:
+        return True
+        
+    elif df["Close"] <= sl_price:
+        return True
+
+    return False
+
+def take_decision(symbol, positions):
+    df = f'{symbol}_df'
+    rsi_signal_value = df.iloc[-1][f"RSI_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'RSI_interval'].values[0]}"]
+    sma_signal_short_value = df.iloc[-1][f"SMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'SMA_short'].values[0]}"]
+    sma_signal_long_value = df.iloc[-1][f"SMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'SMA_long'].values[0]}"]
+    ema_signal_short_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_short'].values[0]}"]
+    ema_signal_long_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_long'].values[0]}"]
+    macd_signal_value = df.iloc[-1]["MACD_Signal"]
+    # Example strategy: Buy if all signals are positive, sell if all signals are negative
+    if rsi_signal_value == 1 and sma_signal_short_value == 1 and sma_signal_long_value == 1 and ema_signal_short_value == 1 and ema_signal_long_value == 1 and macd_signal_value == 1:
+        action = "BUY"
+    elif rsi_signal_value == -1 and sma_signal_short_value == -1 and sma_signal_long_value == -1 and ema_signal_short_value == -1 and ema_signal_long_value == -1 and macd_signal_value == -1:
+        action = "SELL"
+    else:
+        action = "HOLD"
     
-    stop_loss = entry_price - (entry_price * stop_loss_percentage / 100)
-    take_profit = entry_price + (entry_price * take_profit_percentage / 100)
-    return stop_loss >= entry_price or take_profit <= entry_price
+    return action
+
+
+
 
 
 
@@ -220,7 +272,6 @@ def main():
 # Bu bölümde çalıştırılmasını istediğiniz kodları ekleyebilirsiniz
 if __name__ == "__main__":
     # Burada çalışmasını istediğiniz tüm kodları çağırabilirsiniz
-    print("Program başlatılıyor...")
-    loop.run_until_complete(main())  
+    print("Program başlatılıyor...") 
     main()  # `main` fonksiyonunu çağırıyoruz.
     print("Tüm işlemler başarıyla tamamlandı!")
