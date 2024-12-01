@@ -237,15 +237,8 @@ def take_decision(symbol, positions):
     ema_signal_short_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_short'].values[0]}"]
     ema_signal_long_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_long'].values[0]}"]
     macd_signal_value = df.iloc[-1]["MACD_Signal"]
-    # Example strategy: Buy if all signals are positive, sell if all signals are negative
-    if rsi_signal_value == 1 and sma_signal_short_value == 1 and sma_signal_long_value == 1 and ema_signal_short_value == 1 and ema_signal_long_value == 1 and macd_signal_value == 1:
-        action = "BUY"
-    elif rsi_signal_value == -1 and sma_signal_short_value == -1 and sma_signal_long_value == -1 and ema_signal_short_value == -1 and ema_signal_long_value == -1 and macd_signal_value == -1:
-        action = "SELL"
-    else:
-        action = "HOLD"
     
-    return action
+    
 
 
 
