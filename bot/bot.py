@@ -235,12 +235,10 @@ def df_per_coin(indicators):
         elif indicators["Symbol"][i] == "DOGEUSDT":
             DOGE_df = df
 
-def get_symbol_index(symbol):
-    index_list = positions.index[positions['Symbol'] == symbol].tolist()
-    if index_list:
-        return index_list[0]
-    else:
-        return -1  # or raise an exception if preferred
+def get_symbol_index(symbol, positions, position_value):
+    index_list = positions[positions['Symbol'] == symbol]
+    index_list["Position"] = position_value
+    return index_list
 
     
 # Calculating tp and sl prices
@@ -284,117 +282,43 @@ def symbol_to_df(symbol):
     elif symbol == "DOGEUSDT":
         return DOGE_df
 
-def take_decision(symbol, symbol_df: pd.DataFrame, positions_df: pd.DataFrame, indicators: pd.DataFrame):
-    global positions
-    df = pd.DataFrame()
-    df= symbol_df
-    rsi_signal_value = df.iloc[-1].filter(regex="^RSI_Signal").values[0]
-    sma_signal_short_value = df.iloc[-1].filter(regex="^SMA_Signal_short").values[0]
-    sma_signal_long_value = df.iloc[-1].filter(regex="^SMA_Signal_long").values[0]
-    ema_signal_short_value = df.iloc[-1].filter(regex="^EMA_Signal_short").values[0]
-    ema_signal_long_value = df.iloc[-1].filter(regex="^EMA_Signal_long").values[0]
-    macd_signal_value = df.iloc[-1].filter(regex="^MACD_Signal").values[0]
-
-    close_price = df.iloc[-1]["Close"]
-
-
-    # Aggregated decision-making
-    buy_signals = 0
-    sell_signals = 0
-    hold_signals = 0
-    total_signal = 0
-
-    # Count buy/sell signals from all indicators
-    if rsi_signal_value == 1:
-        buy_signals += 1
-    elif rsi_signal_value == -1:
-        sell_signals += 1
-    elif rsi_signal_value == 0:
-        hold_signals += 1
-
-    if sma_signal_short_value == 1 or sma_signal_long_value == 1:
-        buy_signals += 1
-    elif sma_signal_short_value == -1 or sma_signal_long_value == -1:
-        sell_signals += 1
-
-    if ema_signal_short_value == 1 or ema_signal_long_value == 1:
-        buy_signals += 1
-    elif ema_signal_short_value == -1 or ema_signal_long_value == -1:
-        sell_signals += 1
-
-    if macd_signal_value == 1:
-        buy_signals += 1
-    elif macd_signal_value == -1:
-        sell_signals += 1
-
-    total_signal = buy_signals + sell_signals + hold_signals
-    buy_ratio = buy_signals/total_signal
-    sell_ratio = sell_signals/total_signal
-    hold_signals = hold_signals/total_signal
-    idx = get_symbol_index(symbol)
-    # Pozisyon güncellemesi
-    if buy_ratio > sell_ratio and buy_ratio > hold_signals:
-        # Buy sinyali
-        if symbol in positions_df["Symbol"].values:
-            positions.loc[idx, "Position"] = True
-            return "BUY"
-    elif (sell_ratio > hold_signals and sell_ratio > buy_ratio) or tp_sl_actions(symbol_to_df(symbol), positions):
-        # Sell sinyali
-        if symbol in positions_df["Symbol"].values:
-            # Mevcut pozisyonu kapat
-            positions.loc[idx, "Position"] = False
-            return "SELL"
-    else:
-        # Hold (Hiçbir şey yapma)
-        return "HOLD"
 
 
 
 
-def backtest(symbol, initial_balance=10000, trade_size=0.1):
-    symbol_df = symbol_to_df(symbol)
-    balance = initial_balance
-    position_size = 0  # Pozisyon büyüklüğü
-    entry_price = 0
-    trades = 0
 
-    # DataFrame boyunca iterasyon
-    for i in range(1, len(symbol_df)):
-        # O andaki karar
-        current_df = symbol_df.iloc[:i + 1]  # Mevcut veri seti
-        decision = take_decision(current_df, symbol_df=symbol_df, indicators=indicators, positions_df=positions)  # Kararı al
-        current_price = symbol_df.iloc[i]["Close"]
+def backtest_V2(df,risk_size,balance,strategy,symbol):
+    sl_count = 0
+    tp_count = 0
+    for i,row in df.iterrows():
+        low = row["Low"]
+        high = row["High"]
+        karar = row[strategy]
+        curr_price = row["Close"]
+        stop_level = curr_price*(1-risk_size)
+        tp_level = curr_price*(1+risk_size)
+        coin_amount= 0
+        is_buy = False
+        if karar == 1:
+            is_buy = True
+            coin_amount = balance/curr_price
+            if is_buy:
+                if low < stop_level:
+                    balance = balance- ((curr_price - stop_level)*coin_amount)
+                    is_buy = False
+                    sl_count += 1
+                elif high > tp_level:
+                    balance = balance + ((tp_level - curr_price)*coin_amount)
+                    is_buy = False
+                    tp_count += 1
+    result = pd.DataFrame({
+        "Symbol": [symbol],  # Wrap scalar in a list
+        "SL_Count": [sl_count],  # Wrap scalar in a list
+        "TP_Count": [tp_count],  # Wrap scalar in a list
+        "Result": [balance]  # Wrap scalar in a list
+    })
+    return result
 
-        if decision == "BUY" and position_size == 0:
-            # Pozisyon aç
-            position_size = (balance * trade_size) / current_price
-            entry_price = current_price
-            balance -= position_size * entry_price
-            trades += 1
-            print(f"BUY: {position_size:.4f} BTC at {entry_price:.2f}")
-
-        elif decision == "SELL" and position_size > 0:
-            # Pozisyon kapat
-            balance += position_size * current_price
-            profit = (current_price - entry_price) * position_size
-            print(f"SELL: {position_size:.4f} BTC at {current_price:.2f}, Profit: {profit:.2f}")
-            position = 0
-            entry_price = 0
-            trades += 1
-
-    # Kalan pozisyonu kapat
-    if position > 0:
-        balance += position_size * symbol_df.iloc[-1]["Close"]
-        print(f"Closing remaining position at {symbol_df.iloc[-1]['Close']:.2f}")
-
-    # Backtest sonuçları
-    profit_loss = balance - initial_balance
-    print(f"Final Balance: ${balance:.2f}, Profit/Loss: ${profit_loss:.2f}, Total Trades: {trades}")
-    return {
-        "Final Balance": balance,
-        "Profit/Loss": profit_loss,
-        "Total Trades": trades
-    }
 
 
 
@@ -412,9 +336,6 @@ def main():
     print(DOGE_df.tail(30))
 
 
-
-    results = []  # Store backtest results
-
     # Loop through each symbol and run the backtest
     # for i in range(len(indicators)):
     #     symbol = indicators["Symbol"][i]
@@ -429,10 +350,8 @@ def main():
     # for result in results:
     #     print(result)
 
-    result = backtest(symbol="BTCUSDT", initial_balance=10000, trade_size=0.1)  # Run the backtest
-    with open("backtest_results.txt", "w") as file:
-        file.write(str(result))
-
+    result = backtest_V2(df=BTC_df, balance=1000, risk_size=0.01, strategy="RSI_Signal_14", symbol="BTC")  # Run the backtest
+    print(result)
     print("All backtests completed successfully!")
 
     
