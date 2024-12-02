@@ -113,7 +113,7 @@ def calculate_sma(df, timeperiod):
     return df['SMA_'f'{timeperiod}']
 
 
-def sma_signal(df, timeperiod):
+def sma_signal(df, timeperiod, short_or_long:str):
     """
     SMA sinyal hesaplama.
     - Fiyat SMA'nın üzerindeyse ve önceki mumda SMA'nın altındaysa alış sinyali (1).
@@ -121,11 +121,11 @@ def sma_signal(df, timeperiod):
     """
     # SMA hesaplama
     sma_column = calculate_sma(df, timeperiod=timeperiod)
-    sma_column_name = f'SMA_{timeperiod}'
+    sma_column_name = f'SMA_{short_or_long}'
     df[sma_column_name] = sma_column  # SMA'yı dataframe'e ekle
     
     # Varsayılan sinyal sütunu
-    signal_column_name = f'SMA_Signal_{timeperiod}'
+    signal_column_name = f'SMA_Signal_{short_or_long}'
     df[signal_column_name] = 0  # Varsayılan sinyal değeri
     
     # Koşullu sinyaller
@@ -142,7 +142,7 @@ def calculate_ema(df, timeperiod):
     return df['EMA_'f'{timeperiod}']
 
 
-def ema_signal(df, timeperiod):
+def ema_signal(df, timeperiod, short_or_long:str):
     """
     EMA sinyal hesaplama.
     - Fiyat EMA'nın üzerindeyse ve önceki mumda EMA'nın altındaysa alış sinyali (1).
@@ -150,11 +150,11 @@ def ema_signal(df, timeperiod):
     """
     # EMA hesaplama
     ema_column = calculate_ema(df, timeperiod=timeperiod)
-    ema_column_name = f'EMA_{timeperiod}'
+    ema_column_name = f'EMA_{short_or_long}'
     df[ema_column_name] = ema_column  # EMA'yı dataframe'e ekle
     
     # Varsayılan sinyal sütunu
-    signal_column_name = f'EMA_Signal_{timeperiod}'
+    signal_column_name = f'EMA_Signal_{short_or_long}'
     df[signal_column_name] = 0  # Varsayılan sinyal değeri
     
     # Koşullu sinyaller
@@ -215,10 +215,10 @@ def df_per_coin(indicators):
         bars = fetch_historical_data(indicators["Symbol"][i], indicators["interval"][i], indicators["start_time"][i], indicators["end_time"][i])
         df = bars_to_data_frame(bars)
         df = rsi_signal(df, rsi_period=indicators["RSI_interval"][i], overbought=indicators["RSI_overbought"][i], oversold=indicators["RSI_oversold"][i])
-        df = sma_signal(df, timeperiod=indicators["SMA_short"][i])
-        df = sma_signal(df, timeperiod=indicators["SMA_long"][i])
-        df = ema_signal(df, timeperiod=indicators["EMA_short"][i])
-        df = ema_signal(df, timeperiod=indicators["EMA_long"][i])
+        df = sma_signal(df, indicators["SMA_short"][i], short_or_long="short")
+        df = sma_signal(df, indicators["SMA_long"][i], short_or_long="long")
+        df = ema_signal(df, indicators["EMA_short"][i], short_or_long="short")
+        df = ema_signal(df, indicators["EMA_long"][i], short_or_long="long")
         df = macd_signal(df, fastperiod=indicators["MACD_fast"][i], slowperiod=indicators["MACD_slow"][i], signalperiod=indicators["MACD_signal"][i])
 
         
@@ -234,6 +234,14 @@ def df_per_coin(indicators):
             XRP_df = df
         elif indicators["Symbol"][i] == "DOGEUSDT":
             DOGE_df = df
+
+def get_symbol_index(symbol):
+    index_list = positions.index[positions['Symbol'] == symbol].tolist()
+    if index_list:
+        return index_list[0]
+    else:
+        return -1  # or raise an exception if preferred
+
     
 # Calculating tp and sl prices
 def take_profit(symbol, positions=pd.DataFrame):
@@ -254,10 +262,10 @@ def tp_sl_actions(symbol, positions):
     tp_price = take_profit(symbol, positions)
     sl_price = stop_loss(symbol, positions)
     df: pd.DataFrame = symbol_to_df(symbol=symbol)
-    if df.iloc[-1]["Close"] >= tp_price:
+    if not df.empty and df.iloc[-1]["Close"] >= tp_price:
         return True
         
-    elif df["Close"] <= sl_price:
+    elif not df.empty and df.iloc[-1]["Close"] <= sl_price:
         return True
 
     return False
@@ -277,13 +285,14 @@ def symbol_to_df(symbol):
         return DOGE_df
 
 def take_decision(symbol, symbol_df: pd.DataFrame, positions_df: pd.DataFrame, indicators: pd.DataFrame):
+    global positions
     df = pd.DataFrame()
     df= symbol_df
     rsi_signal_value = df.iloc[-1].filter(regex="^RSI_Signal").values[0]
-    sma_signal_short_value = df.iloc[-1].filter(regex="^SMA_Signal").values[0]
-    sma_signal_long_value = df.iloc[-1].filter(regex="^SMA_Signal").values[0]
-    ema_signal_short_value = df.iloc[-1].filter(regex="^EMA_Signal").values[0]
-    ema_signal_long_value = df.iloc[-1].filter(regex="^EMA_Signal").values[0]
+    sma_signal_short_value = df.iloc[-1].filter(regex="^SMA_Signal_short").values[0]
+    sma_signal_long_value = df.iloc[-1].filter(regex="^SMA_Signal_long").values[0]
+    ema_signal_short_value = df.iloc[-1].filter(regex="^EMA_Signal_short").values[0]
+    ema_signal_long_value = df.iloc[-1].filter(regex="^EMA_Signal_long").values[0]
     macd_signal_value = df.iloc[-1].filter(regex="^MACD_Signal").values[0]
 
     close_price = df.iloc[-1]["Close"]
@@ -322,13 +331,7 @@ def take_decision(symbol, symbol_df: pd.DataFrame, positions_df: pd.DataFrame, i
     buy_ratio = buy_signals/total_signal
     sell_ratio = sell_signals/total_signal
     hold_signals = hold_signals/total_signal
-    idx = 0
-    for i in range(len(positions)):
-        if not positions.empty() & positions.loc[i, "Symbol"] == symbol:
-            idx = i
-            break
-  
-
+    idx = get_symbol_index(symbol)
     # Pozisyon güncellemesi
     if buy_ratio > sell_ratio and buy_ratio > hold_signals:
         # Buy sinyali
@@ -443,3 +446,5 @@ if __name__ == "__main__":
     print("Program başlatılıyor...") 
     main()  # `main` fonksiyonunu çağırıyoruz.
     print("Tüm işlemler başarıyla tamamlandı!")
+
+
