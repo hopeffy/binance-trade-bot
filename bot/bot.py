@@ -1,13 +1,11 @@
 from datetime import datetime
 
 import pandas as pd
-from dotenv import load_dotenv
 import os
 from binance.client import Client
 import talib
 
 # reading env file
-load_dotenv(dotenv_path="req.env")
 
 # Reading APIs from environment variables to keep them secure
 api_key = os.getenv("BINANCE_API_KEY")
@@ -88,18 +86,24 @@ def calculate_rsi(df, timeperiod):
 def rsi_signal(df, rsi_period, overbought=70, oversold=30):
     """
     RSI sinyali hesaplama.
-    - Overbought: Aşırı alım seviyesi (varsayılan 70).
-    - Oversold: Aşırı satım seviyesi (varsayılan 30).
+    - RSI oversold seviyesini geçerse ve önceki mumda altında kalmışsa alış sinyali (1).
+    - RSI overbought seviyesinin altına düşerse ve önceki mumda üstünde kalmışsa satış sinyali (-1).
     """
-    # calculate rsi values
+    # RSI hesaplama
     rsi_column = calculate_rsi(df=df, timeperiod=rsi_period)
+    rsi_column_name = f'RSI_{rsi_period}'
+    df[rsi_column_name] = rsi_column  # RSI değerlerini dataframe'e ekle
 
-    # create rsi signals
+    # Varsayılan sinyal sütunu
     signal_column_name = f'RSI_Signal_{rsi_period}'
-    df[signal_column_name] = 0  # default signal value
-    df.loc[rsi_column > overbought, signal_column_name] = -1  # sell signal value
-    df.loc[rsi_column < oversold, signal_column_name] = 1  # buy signal value
+    df[signal_column_name] = 0  # Varsayılan sinyal değeri
+
+    # Koşullu sinyaller
+    df.loc[(df[rsi_column_name] > oversold) & (df[rsi_column_name].shift(1) <= oversold), signal_column_name] = 1  # Alış sinyali
+    df.loc[(df[rsi_column_name] < overbought) & (df[rsi_column_name].shift(1) >= overbought), signal_column_name] = -1  # Satış sinyali
+
     return df
+
 
 
 def calculate_sma(df, timeperiod):
@@ -112,15 +116,24 @@ def calculate_sma(df, timeperiod):
 def sma_signal(df, timeperiod):
     """
     SMA sinyal hesaplama.
-    - Fiyat SMA'nın üzerindeyse alış sinyali.
-    - Fiyat SMA'nın altındaysa satış sinyali.
+    - Fiyat SMA'nın üzerindeyse ve önceki mumda SMA'nın altındaysa alış sinyali (1).
+    - Fiyat SMA'nın altındaysa ve önceki mumda SMA'nın üzerindeyse satış sinyali (-1).
     """
+    # SMA hesaplama
     sma_column = calculate_sma(df, timeperiod=timeperiod)
+    sma_column_name = f'SMA_{timeperiod}'
+    df[sma_column_name] = sma_column  # SMA'yı dataframe'e ekle
+    
+    # Varsayılan sinyal sütunu
     signal_column_name = f'SMA_Signal_{timeperiod}'
     df[signal_column_name] = 0  # Varsayılan sinyal değeri
-    df.loc[df['Close'] > sma_column, signal_column_name] = 1  # Alış sinyali
-    df.loc[df['Close'] < sma_column, signal_column_name] = -1  # Satış sinyali
+    
+    # Koşullu sinyaller
+    df.loc[(df['Close'] > df[sma_column_name]) & (df['Close'].shift(1) < df[sma_column_name].shift(1)), signal_column_name] = 1
+    df.loc[(df['Close'] < df[sma_column_name]) & (df['Close'].shift(1) > df[sma_column_name].shift(1)), signal_column_name] = -1
+    
     return df
+
 
 
 def calculate_ema(df, timeperiod):
@@ -132,15 +145,24 @@ def calculate_ema(df, timeperiod):
 def ema_signal(df, timeperiod):
     """
     EMA sinyal hesaplama.
-    - Fiyat EMA'nın üzerindeyse alış sinyali.
-    - Fiyat EMA'nın altındaysa satış sinyali.
+    - Fiyat EMA'nın üzerindeyse ve önceki mumda EMA'nın altındaysa alış sinyali (1).
+    - Fiyat EMA'nın altındaysa ve önceki mumda EMA'nın üzerindeyse satış sinyali (-1).
     """
+    # EMA hesaplama
     ema_column = calculate_ema(df, timeperiod=timeperiod)
+    ema_column_name = f'EMA_{timeperiod}'
+    df[ema_column_name] = ema_column  # EMA'yı dataframe'e ekle
+    
+    # Varsayılan sinyal sütunu
     signal_column_name = f'EMA_Signal_{timeperiod}'
     df[signal_column_name] = 0  # Varsayılan sinyal değeri
-    df.loc[df['Close'] > ema_column, signal_column_name] = 1  # Alış sinyali
-    df.loc[df['Close'] < ema_column, signal_column_name] = -1  # Satış sinyali
+    
+    # Koşullu sinyaller
+    df.loc[(df['Close'] > df[ema_column_name]) & (df['Close'].shift(1) < df[ema_column_name].shift(1)), signal_column_name] = 1
+    df.loc[(df['Close'] < df[ema_column_name]) & (df['Close'].shift(1) > df[ema_column_name].shift(1)), signal_column_name] = -1
+    
     return df
+
 
 
 def calculate_macd(df, fastperiod, slowperiod, signalperiod):
@@ -156,15 +178,26 @@ def calculate_macd(df, fastperiod, slowperiod, signalperiod):
 def macd_signal(df, fastperiod=12, slowperiod=26, signalperiod=9):
     """
     MACD sinyal hesaplama.
-    - MACD > MACD Signal: Alış sinyali.
-    - MACD < MACD Signal: Satış sinyali.
+    - MACD > MACD Signal ve önceki mumda MACD < MACD Signal: Alış sinyali.
+    - MACD < MACD Signal ve önceki mumda MACD > MACD Signal: Satış sinyali.
     """
+    # MACD hesaplama
     macd, macd_signal, macd_hist = calculate_macd(df, fastperiod, slowperiod, signalperiod)
+    
+    # MACD ve MACD Signal sütunlarını dataframe'e ekle
+    df['MACD'] = macd
+    df['MACD_Signal_Line'] = macd_signal
+    
+    # Varsayılan sinyal sütunu
     signal_column_name = 'MACD_Signal'
     df[signal_column_name] = 0  # Varsayılan sinyal değeri
-    df.loc[macd > macd_signal, signal_column_name] = 1  # Alış sinyali
-    df.loc[macd < macd_signal, signal_column_name] = -1  # Satış sinyali
+    
+    # Koşullu sinyaller
+    df.loc[(df['MACD'] > df['MACD_Signal_Line']) & (df['MACD'].shift(1) < df['MACD_Signal_Line'].shift(1)), signal_column_name] = 1
+    df.loc[(df['MACD'] < df['MACD_Signal_Line']) & (df['MACD'].shift(1) > df['MACD_Signal_Line'].shift(1)), signal_column_name] = -1
+    
     return df
+
 
 
 def calculate_indicators(df, rsi_period, sma_period, ema_period, macd_fast, macd_slow, macd_signal):
