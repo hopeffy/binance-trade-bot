@@ -253,8 +253,8 @@ def stop_loss(symbol, position):
 def tp_sl_actions(symbol, positions):
     tp_price = take_profit(symbol, positions)
     sl_price = stop_loss(symbol, positions)
-    df= f'{symbol}_df'
-    if df.loci[-1]["Close"] >= tp_price:
+    df: pd.DataFrame = symbol_to_df(symbol=symbol)
+    if df.iloc[-1]["Close"] >= tp_price:
         return True
         
     elif df["Close"] <= sl_price:
@@ -262,18 +262,132 @@ def tp_sl_actions(symbol, positions):
 
     return False
 
-def take_decision(symbol, positions):
-    df = f'{symbol}_df'
+def symbol_to_df(symbol):
+    if symbol == "BTCUSDT":
+        return BTC_df
+    elif symbol == "ETHUSDT":
+        return ETH_df
+    elif symbol == "BNBUSDT":
+        return BNB_df
+    elif symbol == "ADAUSDT":
+        return ADA_df
+    elif symbol == "XRPUSDT":
+        return XRP_df
+    elif symbol == "DOGEUSDT":
+        return DOGE_df
+
+def take_decision(symbol, symbol_df, positions_df, indicators):
+    df = symbol_df
     rsi_signal_value = df.iloc[-1][f"RSI_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'RSI_interval'].values[0]}"]
     sma_signal_short_value = df.iloc[-1][f"SMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'SMA_short'].values[0]}"]
     sma_signal_long_value = df.iloc[-1][f"SMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'SMA_long'].values[0]}"]
     ema_signal_short_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_short'].values[0]}"]
     ema_signal_long_value = df.iloc[-1][f"EMA_Signal_{indicators.loc[indicators['Symbol'] == symbol, 'EMA_long'].values[0]}"]
     macd_signal_value = df.iloc[-1]["MACD_Signal"]
-    
-    
+
+    close_price = df.iloc[-1]["Close"]
 
 
+    # Aggregated decision-making
+    buy_signals = 0
+    sell_signals = 0
+    hold_signals = 0
+    toplam_signal = 0
+
+    # Count buy/sell signals from all indicators
+    if rsi_signal_value == 1:
+        buy_signals += 1
+    elif rsi_signal_value == -1:
+        sell_signals += 1
+    elif rsi_signal_value == 0:
+        hold_signals += 1
+
+    if sma_signal_short_value == 1 or sma_signal_long_value == 1:
+        buy_signals += 1
+    elif sma_signal_short_value == -1 or sma_signal_long_value == -1:
+        sell_signals += 1
+
+    if ema_signal_short_value == 1 or ema_signal_long_value == 1:
+        buy_signals += 1
+    elif ema_signal_short_value == -1 or ema_signal_long_value == -1:
+        sell_signals += 1
+
+    if macd_signal_value == 1:
+        buy_signals += 1
+    elif macd_signal_value == -1:
+        sell_signals += 1
+
+    buy_ratio = buy_signals/toplam_signal
+    sell_ratio = sell_signals/toplam_signal
+    hold_signals = hold_signals/toplam_signal
+
+    idx = positions[positions["Symbol"] == symbol].index[symbol]
+
+    # Pozisyon güncellemesi
+    if buy_ratio > sell_ratio and buy_ratio > hold_signals:
+        # Buy sinyali
+        if symbol not in positions_df["Symbol"].values:
+            positions.loc[idx, "Position"] = True
+            return "BUY"
+    elif sell_ratio > hold_signals and sell_ratio > buy_ratio:
+        # Sell sinyali
+        if symbol in positions_df["Symbol"].values:
+            # Mevcut pozisyonu kapat
+            positions.loc[idx, "Position"] = False
+            return "SELL"
+    else:
+        # Hold (Hiçbir şey yapma)
+        return "HOLD"
+
+
+
+
+def backtest(symbol,symbol_df, initial_balance=10000, trade_size=0.1):
+    """
+    Sadece BTC DataFrame'i üzerinde backtest işlemi gerçekleştirir.
+    """
+    balance = initial_balance
+    position = 0  # Pozisyon büyüklüğü
+    entry_price = 0
+    trades = 0
+
+    # DataFrame boyunca iterasyon
+    for i in range(1, len(symbol_df)):
+        # O andaki karar
+        current_df = symbol_df.iloc[:i + 1]  # Mevcut veri seti
+        decision = take_decision(current_df, symbol_df=symbol_df, indicators=indicators, positions_df=positions)  # Kararı al
+        current_price = symbol_df.iloc[i]["Close"]
+
+        if decision == "BUY" and position == 0:
+            # Pozisyon aç
+            positionsize = (balance * trade_size) / current_price
+            entry_price = current_price
+            balance -= position * entry_price
+            trades += 1
+            print(f"BUY: {position:.4f} BTC at {entry_price:.2f}")
+
+        elif decision == "SELL" and position > 0:
+            # Pozisyon kapat
+            balance += position * current_price
+            profit = (current_price - entry_price) * position
+            print(f"SELL: {position:.4f} BTC at {current_price:.2f}, Profit: {profit:.2f}")
+            position = 0
+            entry_price = 0
+            trades += 1
+
+    # Kalan pozisyonu kapat
+    if position > 0:
+        balance += position * symbol_df.iloc[-1]["Close"]
+        print(f"Closing remaining position at {symbol_df.iloc[-1]['Close']:.2f}")
+
+    # Backtest sonuçları
+    profit_loss = balance - initial_balance
+    print(f"Final Balance: ${balance:.2f}, Profit/Loss: ${profit_loss:.2f}, Total Trades: {trades}")
+    return {
+        "Final Balance": balance,
+        "Profit/Loss": profit_loss,
+        "Total Trades": trades
+    }
 
 
 
@@ -289,6 +403,29 @@ def main():
     print(ADA_df.tail(30))
     print(XRP_df.tail(30))
     print(DOGE_df.tail(30))
+
+
+
+    results = []  # Store backtest results
+
+    # Loop through each symbol and run the backtest
+    # for i in range(len(indicators)):
+    #     symbol = indicators["Symbol"][i]
+    #     interval = indicators["interval"][i]
+    #
+    #     print(f"Running backtest for {symbol} ({interval})...")
+    #     result = backtest(symbol=symbol, symbol_df=BTC_df, initial_balance=10000, trade_size=0.1)  # Run the backtest
+    #     results.append(result)  # Save the result for later analysis
+    #
+    # # Display the backtest summary
+    # print("\nBacktest Summary:")
+    # for result in results:
+    #     print(result)
+
+    result = backtest(symbol="BTCUSDT", symbol_df=BTC_df, initial_balance=10000, trade_size=0.1)  # Run the backtest
+    print(result)
+
+    print("All backtests completed successfully!")
 
     
 
