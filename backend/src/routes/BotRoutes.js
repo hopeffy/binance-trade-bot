@@ -1,9 +1,10 @@
 // src/routes/BotRoutes.js
 const express = require('express');
-const { sendBotCommand } = require('../controllers/BotController');
+const { runBot } = require('../controllers/BotController');
+
 
 const router = express.Router();
+router.post('/run-bot', runBot);
 
-router.post('/command', sendBotCommand);
 
 module.exports = router;
